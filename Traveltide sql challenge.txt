@@ -1,0 +1,162 @@
+﻿SQL Challenge: TravelTide II 
+
+
+TravelTide is an online booking platform for travel, specializing in discount airplane tickets and hotel accommodations.
+Connect to the TravelTide Database
+postgresql://Test:bQNxVzJL4g6u@ep-noisy-flower-846766.us-east-2.aws.neon.tech/TravelTide?sslmode=require
+
+
+/*
+Question #1:
+return users who have booked and completed at least 10 flights, ordered by user_id.
+
+
+Expected column names: `user_id`
+*/
+–Q1 solution:
+
+
+SELECT user_id
+FROM sessions
+WHERE flight_booked=true AND cancellation=false
+GROUP BY user_id
+HAVING COUNT( user_id)>=10
+ORDER BY user_id;
+
+
+/*
+–Question #2: 
+Write a solution to report the trip_id of sessions where:
+
+
+1. session resulted in a booked flight
+2. booking occurred in May, 2022
+3. booking has the maximum flight discount on that respective day.
+
+
+If in one day there are multiple such transactions, return all of them.
+
+
+Expected column names: `trip_id`
+*/
+
+
+–Q2 solution:
+
+
+WITH sub AS
+(
+SELECT DATE(session_start) AS session_date,
+MAX(flight_discount_amount) AS max_discount_amount
+FROM sessions
+WHERE flight_booked=true AND EXTRACT(MONTH FROM session_start)=05 AND 
+EXTRACT(YEAR FROM session_start)=2022
+  GROUP BY session_date
+)
+
+
+SELECT s.trip_id 
+from sessions s
+ JOIN sub sb ON DATE(s.session_start)=sb.session_date AND
+s.flight_discount_amount=sb.max_discount_amount
+WHERE flight_booked=true AND EXTRACT(MONTH FROM session_start)=05 AND 
+EXTRACT(YEAR FROM session_start)=2022;
+
+
+
+
+/*
+Question #3: 
+Write a solution that will, for each user_id of users with greater than 10 flights, find out the largest window of days between the departure time of a flight and the departure time of the next departing flight taken by the user.
+
+
+Expected column names: `user_id`, `biggest_window`
+*/
+–Q3 solution:
+
+
+WITH subtable AS(
+
+
+  SELECT user_id,
+  departure_time,
+                 LEAD(DATE_TRUNC('day',departure_time)::DATE )
+     OVER(PARTITION BY s.user_id ORDER BY f.departure_time ) AS next_departure_time
+     FROM flights f
+     LEFT JOIN sessions s ON f.trip_id=s.trip_id
+WHERE 
+        f.departure_time IS NOT NULL
+),
+  num_days AS
+  (
+    SELECT user_id,
+    (next_departure_time-DATE_TRUNC('day',departure_time)::DATE) AS window_diff_days
+    FROM subtable
+     WHERE 
+        next_departure_time IS NOT NULL
+  ),
+
+
+user_count AS(
+SELECT s.user_id
+  
+  FROM flights f
+   LEFT JOIN sessions s ON f.trip_id=s.trip_id
+  GROUP BY s.user_id
+  HAVING COUNT(*)>10
+  
+)
+
+
+SELECT u.user_id ,
+  MAX(n.window_diff_days) AS biggest_days
+  FROM user_count u
+  JOIN num_days n ON u.user_id=n.user_id
+  GROUP BY u.user_id;
+/*
+Question #4: 
+Find the user_id’s of people whose origin airport is Boston (BOS) and whose first and last flight were to the same destination. Only include people who have flown out of Boston at least twice.
+
+
+Expected column names: user_id
+*/
+
+
+–Q4 solution:
+
+
+WITH user_flights AS(
+SELECT 
+s.user_id,
+f.origin_airport,
+f.destination,
+  ROW_NUMBER()  OVER(PARTITION BY s.user_id ORDER BY f.destination ) AS flight_rank,
+  COUNT(*) OVER (PARTITION BY s.user_id) AS total_flights,
+  COUNT(*) AS bos_flights
+FROM flights f
+LEFT JOIN sessions s ON f.trip_id=s.trip_id
+WHERE f.origin_airport='BOS' AND s.cancellation=false
+  GROUP BY 1,2,3
+
+
+),
+destination_flights AS(
+SELECT
+        user_id,
+        CASE WHEN flight_rank = 1 THEN destination END AS first_destination,
+        CASE WHEN flight_rank = total_flights THEN destination END AS last_destination
+        
+    FROM 
+        user_flights
+
+
+    GROUP BY 
+        user_id,flight_rank,destination,total_flights,bos_flights
+  HAVING bos_flights>=2
+ )
+
+
+SELECT 
+    user_id
+FROM  destination_flights
+WHERE first_destination=last_destination ;
