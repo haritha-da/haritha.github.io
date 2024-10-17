@@ -1,0 +1,166 @@
+SQL Challenge: Vibestream II
+
+
+Vibestream is a social media app designed for simple expressions of emotion. Users post short messages about their feelings and receive support and affirmation by receiving Likes by other users.
+Questions from the Vibestream team are listed below.
+Connect to the Vibestream Database 
+
+postgresql://Test:bQNxVzJL4g6u@ep-noisy-flower-846766.us-east-2.aws.neon.tech/vibestream?sslmode=require
+
+
+
+
+/*Question #1: 
+Vibestream is designed for users to share brief updates about how they are feeling, as such 
+the platform enforces a character limit of 25. How many posts are exactly 25 characters long?
+Expected column names: char_limit_posts*/
+
+
+
+
+SELECT 
+        count(*) AS char_limit_posts
+FROM posts
+WHERE LENGTH(content) = 25;
+
+
+
+
+/* Question #2:
+
+
+Users JamesTiger8285 and RobertMermaid7605 are Vibestream’s most active posters.
+Find the difference in the number of posts these two users made on each day that at 
+least one of them made a post. Return dates where the absolute value of the difference
+between posts made is greater than 2 (i.e dates where JamesTiger8285 made at least 3 
+more posts than RobertMermaid7605 or vice versa).
+
+
+**Expected column names: `post_date`**
+
+
+*/
+
+
+WITH james_posts AS (
+    SELECT 
+        p.post_date,
+        COUNT(p.post_id) AS num_posts_james
+    FROM users u
+    JOIN posts p ON u.user_id = p.user_id
+    WHERE u.user_name = 'JamesTiger8285'
+    GROUP BY p.post_date
+),
+robert_posts AS (
+    SELECT 
+        p.post_date,
+        COUNT(p.post_id) AS num_posts_robert
+    FROM users u
+    JOIN posts p ON u.user_id = p.user_id
+    WHERE u.user_name = 'RobertMermaid7605'
+    GROUP BY p.post_date
+)
+SELECT 
+    COALESCE(jp.post_date, rp.post_date) AS post_date
+FROM james_posts jp
+FULL OUTER JOIN robert_posts rp 
+    ON jp.post_date = rp.post_date
+WHERE ABS(COALESCE(jp.num_posts_james, 0) - COALESCE(rp.num_posts_robert, 0)) > 2;
+
+
+
+
+
+
+
+
+/* Question #3: 
+Most users have relatively low engagement and few connections. User WilliamEagle6815, for example,
+has only 2 followers.Network Analysts would say this user has two **1-step path** relationships.
+Having 2 followers doesn’t mean WilliamEagle6815 is isolated, however. Through his followers,
+he is indirectly connected to the larger Vibestream network.  
+
+
+Consider all users up to 3 steps away from this user:
+
+
+- 1-step path (X → WilliamEagle6815)
+- 2-step path (Y → X → WilliamEagle6815)
+- 3-step path (Z → Y → X → WilliamEagle6815)
+
+
+Write a query to find follower_id of all users within 4 steps of WilliamEagle6815. 
+Order by follower_id and return the top 10 records.
+
+
+**Expected column names: `follower_id`**
+*/
+WITH step1 AS (
+    -- Step 1: Get 1-step followers of WilliamEagle6815
+    SELECT f1.follower_id
+    FROM follows f1
+    JOIN users u ON f1.followee_id = u.user_id
+    WHERE u.user_name = 'WilliamEagle6815'
+),
+step2 AS (
+    -- Step 2: Get followers of those 1-step followers
+    SELECT f2.follower_id
+    FROM follows f2
+    JOIN step1 s1 ON s1.follower_id = f2.followee_id
+),
+step3 AS (
+    -- Step 3: Get followers of those 2-step followers
+    SELECT f3.follower_id
+    FROM follows f3
+    JOIN step2 s2 ON s2.follower_id = f3.followee_id
+),
+step4 AS (
+    -- Step 4: Get followers of those 3-step followers
+    SELECT f4.follower_id
+    FROM follows f4
+    JOIN step3 s3 ON s3.follower_id = f4.followee_id
+)
+-- Combine all results and ensure distinct follower IDs
+SELECT  follower_id
+FROM step1
+UNION
+SELECT  follower_id FROM step2
+UNION
+SELECT  follower_id FROM step3
+UNION
+SELECT  follower_id FROM step4
+ORDER BY follower_id
+LIMIT 10;
+
+
+
+
+
+
+/*Question #4: 
+Return **top posters** for 2023-11-30 and 2023-12-01. A **top poster** is a user who has the most
+OR second most number of posts in a given day. Include the number of posts in the result and order 
+the result by post_date and user_id.
+**Expected column names: `post_date`, `user_id`, `posts`**
+*/
+
+
+
+
+
+
+WITH daily_post_counts AS (
+    SELECT 
+        p.post_date,
+        u.user_id,
+        COUNT(p.post_id) AS posts,
+        RANK() OVER (PARTITION BY p.post_date ORDER BY COUNT(p.post_id) DESC) AS rank
+    FROM users u
+    JOIN posts p ON u.user_id = p.user_id
+    WHERE p.post_date IN ('2023-11-30', '2023-12-01')
+    GROUP BY p.post_date, u.user_id
+)
+SELECT post_date, user_id, posts
+FROM daily_post_counts
+WHERE rank <= 3  -- Only keep the top two posters per day
+ORDER BY post_date, user_id;
